@@ -1,4 +1,4 @@
-use bevy::{prelude::*, sprite::MaterialMesh2dBundle};
+use bevy::{prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide, Collision}}, time::FixedTimestep};
 use bevy_inspector_egui::WorldInspectorPlugin;
 
 // Window
@@ -6,6 +6,20 @@ const WIDTH: f32 = 1280.0;
 const HEIGHT: f32 = 720.0;
 const BACKGROUND_COLOR: Color = Color::rgb(0.1, 0.1, 0.1);
 const PLAYER_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
+const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
+const MIDDLE_LINE_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
+
+// Movement
+const TIME_STEP: f32 = 1.0 / 60.0;
+const PLAYER_SPEED: f32 = 500.0;
+const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(0.5, -0.5);
+const BALL_SPEED: f32 = 400.0;
+
+// Scoreboard
+const SCOREBOARD_FONT_SIZE: f32 = 40.0;
+const SCORE_COLOUR: Color = Color::rgb(1.0, 1.0, 1.0);
+const SCOREBOARD_P1_INDEX: usize = 0;
+const SCOREBOARD_P2_INDEX: usize = 0;
 
 fn main() {
     App::new()
@@ -21,39 +35,65 @@ fn main() {
             ..Default::default()
         })
         .insert_resource(ClearColor(BACKGROUND_COLOR))
+        .insert_resource(Scoreboard::new())
         .add_plugins(DefaultPlugins)
         .add_plugin(WorldInspectorPlugin::new())
-        .add_startup_system(spawn_camera)
-        .add_startup_system(create_players)
-        .add_system(update_positions)
+        .add_startup_system(setup)
+        .add_system_set(
+            SystemSet::new()
+                .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+                .with_system(move_player.before(check_for_collisions))
+        )
+        .add_system(move_player)
         .run();
 }
 
 #[derive(Component)]
 struct Player {
-    position: f32,
+    score: usize,
 }
 
 #[derive(Component)]
-struct Velocity {
-    value: f32,
-}
+struct Velocity(Vec2);
 
 #[derive(Component)]
-struct Ball {
-    velocity: Vec2,
-    position: Vec2,
+struct Collider;
+
+#[derive(Default)]
+struct CollisionEvent;
+
+#[derive(Component)]
+struct Ball;
+
+#[derive(Component)]
+struct RespawnWall;
+
+#[derive(Component)]
+struct BounceWall;
+
+struct Scoreboard {
+    player1: Player,
+    player2: Player,
 }
 
-fn spawn_camera(mut commands: Commands) {
-    commands.spawn_bundle(Camera2dBundle::default());
+impl Scoreboard {
+    fn new() -> Scoreboard {
+        Scoreboard {
+            player1: Player{ score: 0 },
+            player2: Player{ score: 0 },
+        }
+    }
 }
 
-fn create_players(
+fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
+
+    commands.spawn_bundle(Camera2dBundle::default());
+
     commands
         .spawn_bundle(MaterialMesh2dBundle {
             mesh: meshes
@@ -65,9 +105,8 @@ fn create_players(
             material: materials.add(PLAYER_COLOR.into()),
             ..default()
         })
-        .insert(Player {
-            position: HEIGHT / 2.0,
-        });
+        .insert(Player)
+        .insert(Collider);
     commands
         .spawn_bundle(MaterialMesh2dBundle {
             mesh: meshes
@@ -79,12 +118,182 @@ fn create_players(
             material: materials.add(PLAYER_COLOR.into()),
             ..default()
         })
-        .insert(Player {
-            position: HEIGHT / 2.0,
+        .insert(Player)
+        .insert(Collider);
+
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Circle::default())).into(),
+            transform: Transform::default()
+                .with_scale(Vec3::splat(12.0))
+                .with_translation(Vec3::new(0.0, 0.0, 1.0)),
+            material: materials.add(PLAYER_COLOR.into()),
+            ..default()
+        })
+        .insert(Ball)
+        .insert(Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED));
+
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0))).into(),
+            transform: Transform::default()
+                .with_translation(Vec3::new(-WIDTH / 2.0 + 2.0, 0.0, 0.0))
+                .with_scale(Vec3::splat(1.0)),
+            material: materials.add(WALL_COLOR.into()),
+            ..default()
+        })
+        .insert(BounceWall);
+
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0))).into(),
+            transform: Transform::default()
+                .with_translation(Vec3::new(WIDTH / 2.0 - 2.0, 0.0, 0.0))
+                .with_scale(Vec3::splat(1.0)),
+            material: materials.add(WALL_COLOR.into()),
+            ..default()
+        })
+        .insert(BounceWall);
+
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0))).into(),
+            transform: Transform::default()
+                .with_translation(Vec3::new(0.0, HEIGHT / 2.0 - 2.0, 0.0))
+                .with_scale(Vec3::splat(1.0)),
+            material: materials.add(WALL_COLOR.into()),
+            ..default()
+        })
+        .insert(RespawnWall);
+
+    commands
+        .spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0))).into(),
+            transform: Transform::default()
+                .with_translation(Vec3::new(0.0, -HEIGHT / 2.0 + 2.0, 0.0))
+                .with_scale(Vec3::splat(1.0)),
+            material: materials.add(WALL_COLOR.into()),
+            ..default()
+        })
+        .insert(RespawnWall);
+
+    for height in ((-HEIGHT / 2.0 ) / 8.0) as i32..((HEIGHT / 2.0) / 8.0 ) as i32 {
+        commands.spawn_bundle(MaterialMesh2dBundle {
+            mesh: meshes.add(Mesh::from(shape::Quad::default())).into(),
+            transform: Transform::default()
+                .with_translation(Vec3::new(0.0, (-height as f32) * 8.0, 0.0))
+                .with_scale(Vec3::splat(2.0)),
+            material: materials.add(MIDDLE_LINE_COLOR.into()),
+            ..default() 
         });
-}
-fn update_positions(mut query: Query<&Player, &mut Transform>) {
-    for (player, mut transform) in &mut query {
-        transform.translation.y = position.position;
     }
+
+    // Scoreboard
+    commands.spawn_bundle(
+        TextBundle::from_sections([
+            
+            TextSection::from_style(TextStyle {
+                font: asset_server.load("fonts/Minecraftmono.otf"),
+                font_size: SCOREBOARD_FONT_SIZE,
+                color: SCORE_COLOUR,
+            }),
+        ]),
+    );
+
+}
+
+fn move_player(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut query: Query<&mut Transform, With<Player>>,
+) {
+    let mut paddle_transform = query.single_mut();
+    let mut direction = 0.0;
+
+    if keyboard_input.pressed(KeyCode::Up) {
+        direction -= 1.0;
+    }
+
+    if keyboard_input.pressed(KeyCode::Down) {
+        direction += 1.0;
+    }
+
+    // Calculate the new horizontal paddle position based on player input
+    let new_paddle_position = paddle_transform.translation.y + direction * PLAYER_SPEED * TIME_STEP;
+
+    // Update the paddle position,
+    // making sure it doesn't cause the paddle to leave the arena
+    let left_bound = -WIDTH / 2.0;
+    let right_bound = WIDTH / 2.0;
+
+    paddle_transform.translation.x = new_paddle_position.clamp(left_bound, right_bound);
+}
+
+
+fn check_for_collisions(
+    mut commands: Commands,
+    mut scoreboard: ResMut<Scoreboard>,
+    mut ball_query: Query<(&mut Velocity, &Transform), With<Ball>>,
+    collider_query: Query<(Entity, &Transform, Option<&RespawnWall>), With<Collider>>,
+    mut collision_events: EventWriter<CollisionEvent>,
+) {
+    let (mut ball_velocity, ball_transform) = ball_query.single_mut();
+    let ball_size = ball_transform.scale.truncate();
+
+    // check collision with walls
+    for (collider_entity, transform, maybe_brick) in &collider_query {
+        let collision = collide(
+            ball_transform.translation,
+            ball_size,
+            transform.translation,
+            transform.scale.truncate(),
+        );
+        if let Some(collision) = collision {
+            // Sends a collision event so that other systems can react to the collision
+            collision_events.send_default();
+
+            // Bricks should be despawned and increment the scoreboard on collision
+            if maybe_brick.is_some() {
+                scoreboard.player1 += 1;
+                commands.entity(collider_entity).despawn();
+            }
+
+            // reflect the ball when it collides
+            let mut reflect_x = false;
+            let mut reflect_y = false;
+
+            // only reflect if the ball's velocity is going in the opposite direction of the
+            // collision
+            match collision {
+                Collision::Left => reflect_x = ball_velocity.x > 0.0,
+                Collision::Right => reflect_x = ball_velocity.x < 0.0,
+                Collision::Top => reflect_y = ball_velocity.y < 0.0,
+                Collision::Bottom => reflect_y = ball_velocity.y > 0.0,
+                Collision::Inside => { /* do nothing */ }
+            }
+
+            // reflect velocity on the x-axis if we hit something on the x-axis
+            if reflect_x {
+                ball_velocity.x = -ball_velocity.x;
+            }
+
+            // reflect velocity on the y-axis if we hit something on the y-axis
+            if reflect_y {
+                ball_velocity.y = -ball_velocity.y;
+            }
+        }
+    }
+}
+
+fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>, winner: Players) {
+    let mut text = query.single_mut();
+    match winner {
+        Player1 => {
+            text.sections[SCOREBOARD_P1_INDEX].value = scoreboard.player1.to_string();
+        }
+        Player2 => {
+            text.sections[SCOREBOARD_P2_INDEX].value = scoreboard.player2.to_string();
+        }
+    }
+
+    todo!()
 }
