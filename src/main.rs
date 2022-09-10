@@ -10,7 +10,6 @@ use bevy::{
     text::Text2dBounds,
     time::FixedTimestep,
 };
-use bevy_inspector_egui::WorldInspectorPlugin;
 
 // Window
 const WIDTH: f32 = 1280.0;
@@ -20,10 +19,15 @@ const PLAYER_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 const WALL_COLOR: Color = Color::rgb(0.2, 0.2, 0.2);
 const MIDDLE_LINE_COLOR: Color = Color::rgb(0.15, 0.15, 0.15);
 
+// Ball
+const BALL_COLOUR: Color = Color::rgb(1.0, 1.0, 1.0);
+const BALL_SIZE: Vec3 = Vec3::splat(12.0);
+const BALL_START_POS: Vec3 = Vec3::splat(0.0);
+
 // Movement
 const TIME_STEP: f32 = 1.0 / 60.0;
 const PLAYER_SPEED: f32 = 500.0;
-const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(0.5, -0.5);
+const INITIAL_BALL_DIRECTION: Vec2 = Vec2::new(0.4, -0.1);
 const BALL_SPEED: f32 = 400.0;
 
 // Scoreboard
@@ -47,13 +51,17 @@ fn main() {
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(Scoreboard::new())
         .add_plugins(DefaultPlugins)
-        .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
+        .add_event::<CollisionEvent>()
         .add_system_set(
-            SystemSet::new().with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-            .with_system(move_player.before(check_for_collisions)),
+            SystemSet::new()
+                .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+                .with_system(check_for_collisions)
+                .with_system(move_player.before(check_for_collisions))
+                .with_system(apply_velocity.before(check_for_collisions)),
         )
         .add_system(update_scoreboard)
+        .add_system(bevy::window::close_on_esc)
         .run();
 }
 
@@ -108,96 +116,132 @@ fn setup(
     commands.spawn_bundle(Camera2dBundle::default());
 
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(0.1, 1.0, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_scale(Vec3::splat(128.0))
-                .with_translation(Vec3::new(-WIDTH / 2.0 + 20.0, 0.0, 0.0)),
-            material: materials.add(PLAYER_COLOR.into()),
-            ..default()
-        })
-        .insert(Player)
-        .insert(Collider);
-    commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(0.1, 1.0, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_scale(Vec3::splat(128.0))
-                .with_translation(Vec3::new(WIDTH / 2.0 - 20.0, 0.0, 0.0)),
-            material: materials.add(PLAYER_COLOR.into()),
-            ..default()
-        })
-        .insert(Player)
-        .insert(Collider);
-
-    commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes.add(Mesh::from(shape::Circle::default())).into(),
-            transform: Transform::default()
-                .with_scale(Vec3::splat(12.0))
-                .with_translation(Vec3::new(0.0, 0.0, 1.0)),
-            material: materials.add(PLAYER_COLOR.into()),
-            ..default()
-        })
+        // Ball(in)
+        .spawn()
         .insert(Ball)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                scale: BALL_SIZE,
+                translation: BALL_START_POS,
+                ..default()
+            },
+            sprite: Sprite {
+                color: BALL_COLOUR,
+                ..default()
+            },
+            ..default()
+        })
         .insert(Velocity(INITIAL_BALL_DIRECTION.normalize() * BALL_SPEED));
 
+    // Left player (player 1)
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_translation(Vec3::new(-WIDTH / 2.0 + 2.0, 0.0, 0.0))
-                .with_scale(Vec3::splat(1.0)),
-            material: materials.add(WALL_COLOR.into()),
+        .spawn()
+        .insert(Player)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(-WIDTH/2.0 + 20.0, 0.0, 0.0),
+                scale: Vec3::new(12.8, 128.0, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: PLAYER_COLOR,
+                ..default()
+            },
             ..default()
         })
-        .insert(BounceWall);
+        .insert(Collider);
 
+    // Right player (player 2)
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_translation(Vec3::new(WIDTH / 2.0 - 2.0, 0.0, 0.0))
-                .with_scale(Vec3::splat(1.0)),
-            material: materials.add(WALL_COLOR.into()),
+        .spawn()
+        .insert(Player)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(WIDTH/2.0 - 20.0, 0.0, 0.0),
+                scale: Vec3::new(12.8, 128.0, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: PLAYER_COLOR,
+                ..default()
+            },
             ..default()
         })
-        .insert(BounceWall);
+        .insert(Collider);
 
+    // Left wall
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_translation(Vec3::new(0.0, HEIGHT / 2.0 - 2.0, 0.0))
-                .with_scale(Vec3::splat(1.0)),
-            material: materials.add(WALL_COLOR.into()),
+        .spawn()
+        .insert(RespawnWallLeft)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(-WIDTH / 2.0, 0.0, 0.0),
+                scale: Vec3::new(10.0, HEIGHT, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: WALL_COLOR.into(),
+                ..default()
+            },
             ..default()
         })
-        .insert(RespawnWallLeft);
+        .insert(Collider);
 
+    // Right Wall
     commands
-        .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes
-                .add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0)))
-                .into(),
-            transform: Transform::default()
-                .with_translation(Vec3::new(0.0, -HEIGHT / 2.0 + 2.0, 0.0))
-                .with_scale(Vec3::splat(1.0)),
-            material: materials.add(WALL_COLOR.into()),
+        .spawn()
+        .insert(RespawnWallRight)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(WIDTH / 2.0, 0.0, 0.0),
+                scale: Vec3::new(10.0, HEIGHT, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: WALL_COLOR.into(),
+                ..default()
+            },
             ..default()
         })
-        .insert(RespawnWallRight);
+        .insert(Collider);
 
+    // Top wall
+    commands
+        .spawn()
+        .insert(BounceWall)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(0.0, HEIGHT / 2.0, 0.0),
+                scale: Vec3::new(WIDTH, 10.0, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: WALL_COLOR.into(),
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Collider);
+
+    // Bottom Wall
+    commands
+        .spawn()
+        .insert(BounceWall)
+        .insert_bundle(SpriteBundle {
+            transform: Transform {
+                translation: Vec3::new(0.0, -HEIGHT / 2.0, 0.0),
+                scale: Vec3::new(WIDTH, 10.0, 0.0),
+                ..default()
+            },
+            sprite: Sprite {
+                color: WALL_COLOR.into(),
+                ..default()
+            },
+            ..default()
+        })
+        .insert(Collider);
+
+    // Make the middle line by spawning a bunch of small quads
     for height in ((-HEIGHT / 2.0) / 8.0) as i32..((HEIGHT / 2.0) / 8.0) as i32 {
         commands.spawn_bundle(MaterialMesh2dBundle {
             mesh: meshes.add(Mesh::from(shape::Quad::default())).into(),
@@ -209,6 +253,7 @@ fn setup(
         });
     }
 
+    // Style of the text, using font as specified by the constant
     let text_style = TextStyle {
         font: asset_server.load(SCORE_FONT),
         font_size: SCORE_FONT_SIZE,
@@ -217,6 +262,7 @@ fn setup(
 
     // Scoreboard
     commands
+        // Left
         .spawn_bundle(Text2dBundle {
             text: Text::from_section("0", text_style.clone()).with_alignment(TextAlignment::CENTER),
             text_2d_bounds: Text2dBounds {
@@ -229,6 +275,7 @@ fn setup(
         .insert(Score);
 
     commands
+        // Right
         .spawn_bundle(Text2dBundle {
             text: Text::from_section("0", text_style.clone()).with_alignment(TextAlignment::CENTER),
             text_2d_bounds: Text2dBounds {
@@ -245,62 +292,64 @@ fn move_player(
     keyboard_input: Res<Input<KeyCode>>,
     mut query: Query<&mut Transform, With<Player>>,
 ) {
-    let mut directionPlayer1 = 0.0;
-    let mut directionPlayer2 = 0.0;
+    let mut direction_player1 = 0.0;
+    let mut direction_player2 = 0.0;
 
     if keyboard_input.pressed(KeyCode::W) {
-        directionPlayer1 += 1.0;
+        direction_player1 += 1.0;
     }
 
     if keyboard_input.pressed(KeyCode::S) {
-        directionPlayer1 -= 1.0;
+        direction_player1 -= 1.0;
     }
 
     if keyboard_input.pressed(KeyCode::O) {
-        directionPlayer2 += 1.0;
+        direction_player2 += 1.0;
     }
 
     if keyboard_input.pressed(KeyCode::L) {
-        directionPlayer2 -= 1.0;
+        direction_player2 -= 1.0;
     }
 
-    let mut paddle_transform = query.iter_mut().enumerate().for_each(|(index, mut transform)| {
-        let left_bound = -HEIGHT / 2.0 + 80.0;
-        let right_bound = HEIGHT / 2.0 - 80.0;
+    // If the current player is player 1, we add to that players velocity, if it is player 2 we add to that
+    query
+        .iter_mut()
+        .enumerate()
+        .for_each(|(index, mut transform)| {
+            let left_bound = -HEIGHT / 2.0 + 80.0;
+            let right_bound = HEIGHT / 2.0 - 80.0;
 
-        if index == 0 {
-            let new_paddle_position = transform.translation.y + directionPlayer1 * PLAYER_SPEED * TIME_STEP;
+            if index == 0 {
+                let new_paddle_position =
+                    transform.translation.y + direction_player1 * PLAYER_SPEED * TIME_STEP;
 
-            transform.translation.y = new_paddle_position.clamp(left_bound, right_bound);
-        } else {
-            let new_paddle_position = transform.translation.y + directionPlayer2 * PLAYER_SPEED * TIME_STEP;
+                transform.translation.y = new_paddle_position.clamp(left_bound, right_bound);
+            } else {
+                let new_paddle_position =
+                    transform.translation.y + direction_player2 * PLAYER_SPEED * TIME_STEP;
 
-            transform.translation.y = new_paddle_position.clamp(left_bound, right_bound);
-        }
-    });
-
-    
-    
-
+                transform.translation.y = new_paddle_position.clamp(left_bound, right_bound);
+            }
+        });
 }
 
 fn check_for_collisions(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
-    mut ball_query: Query<(&mut Velocity, &Transform), With<Ball>>,
-    collider_query: Query<(Entity, &Transform, Option<&RespawnWallLeft>, Option<&RespawnWallRight>), With<Collider>>,
+    mut ball_query: Query<(&mut Velocity, &mut Transform), With<Ball>>,
+    collider_query: Query<(&Collider, &Transform, Option<&RespawnWallLeft>, Option<&RespawnWallRight>), Without<Ball>>,
     mut collision_events: EventWriter<CollisionEvent>,
 ) {
-    let (mut ball_velocity, ball_transform) = ball_query.single_mut();
+    let (mut ball_velocity, mut ball_transform) = ball_query.single_mut();
     let ball_size = ball_transform.scale.truncate();
 
     // check collision with walls
-    for (collider_entity, transform, maybe_left, maybe_right) in &collider_query {
+    for (collider_entity, collider_transform, maybe_left, maybe_right) in &collider_query {
         let collision = collide(
             ball_transform.translation,
             ball_size,
-            transform.translation,
-            transform.scale.truncate(),
+            collider_transform.translation,
+            collider_transform.scale.truncate(),
         );
         if let Some(collision) = collision {
             // Sends a collision event so that other systems can react to the collision
@@ -309,12 +358,12 @@ fn check_for_collisions(
             // Bricks should be despawned and increment the scoreboard on collision
             if maybe_left.is_some() {
                 scoreboard.p2_score += 1;
-                commands.entity(collider_entity).despawn();
+                ball_transform.translation = Vec3::splat(0.0);
             }
 
             if maybe_right.is_some() {
                 scoreboard.p1_score += 1;
-                commands.entity(collider_entity).despawn();
+                ball_transform.translation = Vec3::splat(0.0);
             }
 
             // reflect the ball when it collides
@@ -344,12 +393,19 @@ fn check_for_collisions(
     }
 }
 
+// Update all of the text elements to the corresponding score 
 fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
     let mut query = query.iter_mut();
 
-    query.next().unwrap()
-        .sections[0].value = scoreboard.p1_score.to_string();
+    query.next().unwrap().sections[0].value = scoreboard.p1_score.to_string();
 
-    query.next().unwrap()
-        .sections[0].value = scoreboard.p2_score.to_string();
+    query.next().unwrap().sections[0].value = scoreboard.p2_score.to_string();
+}
+
+// Add velocity to the ball
+fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
+    for (mut transform, velocity) in &mut query {
+        transform.translation.x += velocity.x * TIME_STEP;
+        transform.translation.y += velocity.y * TIME_STEP;
+    }
 }

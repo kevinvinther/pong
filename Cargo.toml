@@ -10,9 +10,6 @@ bevy = {version = "0.8", features = ["dynamic"]}
 # If on windows, use: 
 # bevy = "0.8"
 
-## Bevy-inspector egui
-# https://github.com/jakobhellermann/bevy-inspector-egui
-bevy-inspector-egui = "0.12.1"
 
 # Enable a small amount of optimization in debug mode
 [profile.dev]
