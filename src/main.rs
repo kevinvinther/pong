@@ -58,7 +58,8 @@ fn main() {
                 .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
                 .with_system(check_for_collisions)
                 .with_system(move_player.before(check_for_collisions))
-                .with_system(apply_velocity.before(check_for_collisions)),
+                .with_system(apply_velocity.before(check_for_collisions))
+                .with_system(play_collision_sound.after(check_for_collisions)),
         )
         .add_system(update_scoreboard)
         .add_system(bevy::window::close_on_esc)
@@ -92,6 +93,8 @@ struct BounceWall;
 #[derive(Component)]
 struct Score;
 
+struct CollisionSound(Handle<AudioSource>);
+
 #[derive(Component, Default)]
 struct Scoreboard {
     p1_score: usize,
@@ -113,6 +116,10 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
+
+    let ball_collision_sound = asset_server.load("sounds/hit.wav");
+    commands.insert_resource(CollisionSound(ball_collision_sound));
+
     commands.spawn_bundle(Camera2dBundle::default());
 
     commands
@@ -334,7 +341,6 @@ fn move_player(
 }
 
 fn check_for_collisions(
-    mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut ball_query: Query<(&mut Velocity, &mut Transform), With<Ball>>,
     collider_query: Query<(&Collider, &Transform, Option<&RespawnWallLeft>, Option<&RespawnWallRight>), Without<Ball>>,
@@ -344,7 +350,7 @@ fn check_for_collisions(
     let ball_size = ball_transform.scale.truncate();
 
     // check collision with walls
-    for (collider_entity, collider_transform, maybe_left, maybe_right) in &collider_query {
+    for (_collider, collider_transform, maybe_left, maybe_right) in &collider_query {
         let collision = collide(
             ball_transform.translation,
             ball_size,
@@ -408,4 +414,18 @@ fn apply_velocity(mut query: Query<(&mut Transform, &Velocity)>) {
         transform.translation.x += velocity.x * TIME_STEP;
         transform.translation.y += velocity.y * TIME_STEP;
     }
+}
+
+
+fn play_collision_sound(
+    collision_events: EventReader<CollisionEvent>,
+    audio: Res<Audio>,
+    sound: Res<CollisionSound>
+) {
+        // Play a sound once per frame if a collision occurred.
+        if !collision_events.is_empty() {
+            // This prevents events staying active on the next frame.
+            collision_events.clear();
+            audio.play(sound.0.clone());
+        }
 }
