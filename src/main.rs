@@ -1,8 +1,15 @@
 ///
 /// The scoreboard changes the text values as intended, but is not displayed properly
-/// 
-
-use bevy::{prelude::*, sprite::{MaterialMesh2dBundle, collide_aabb::{collide, Collision}}, time::FixedTimestep};
+///
+use bevy::{
+    prelude::*,
+    sprite::{
+        collide_aabb::{collide, Collision},
+        MaterialMesh2dBundle,
+    },
+    text::Text2dBounds,
+    time::FixedTimestep,
+};
 use bevy_inspector_egui::WorldInspectorPlugin;
 
 // Window
@@ -42,9 +49,7 @@ fn main() {
         .add_plugin(WorldInspectorPlugin::new())
         .add_startup_system(setup)
         .add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
-                //.with_system(move_player.before(check_for_collisions))
+            SystemSet::new().with_run_criteria(FixedTimestep::step(TIME_STEP as f64)), //.with_system(move_player.before(check_for_collisions))
         )
         //.add_system(move_player)
         .add_system(update_scoreboard)
@@ -84,7 +89,7 @@ struct Scoreboard {
 impl Scoreboard {
     fn new() -> Scoreboard {
         Scoreboard {
-            p1_score: 23,
+            p1_score: 0,
             p2_score: 0,
         }
     }
@@ -96,7 +101,6 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-
     commands.spawn_bundle(Camera2dBundle::default());
 
     commands
@@ -140,7 +144,9 @@ fn setup(
 
     commands
         .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0))).into(),
+            mesh: meshes
+                .add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0)))
+                .into(),
             transform: Transform::default()
                 .with_translation(Vec3::new(-WIDTH / 2.0 + 2.0, 0.0, 0.0))
                 .with_scale(Vec3::splat(1.0)),
@@ -151,7 +157,9 @@ fn setup(
 
     commands
         .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0))).into(),
+            mesh: meshes
+                .add(Mesh::from(shape::Box::new(10.0, HEIGHT, 0.0)))
+                .into(),
             transform: Transform::default()
                 .with_translation(Vec3::new(WIDTH / 2.0 - 2.0, 0.0, 0.0))
                 .with_scale(Vec3::splat(1.0)),
@@ -162,7 +170,9 @@ fn setup(
 
     commands
         .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0))).into(),
+            mesh: meshes
+                .add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0)))
+                .into(),
             transform: Transform::default()
                 .with_translation(Vec3::new(0.0, HEIGHT / 2.0 - 2.0, 0.0))
                 .with_scale(Vec3::splat(1.0)),
@@ -173,7 +183,9 @@ fn setup(
 
     commands
         .spawn_bundle(MaterialMesh2dBundle {
-            mesh: meshes.add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0))).into(),
+            mesh: meshes
+                .add(Mesh::from(shape::Box::new(WIDTH, 10.0, 0.0)))
+                .into(),
             transform: Transform::default()
                 .with_translation(Vec3::new(0.0, -HEIGHT / 2.0 + 2.0, 0.0))
                 .with_scale(Vec3::splat(1.0)),
@@ -182,69 +194,47 @@ fn setup(
         })
         .insert(RespawnWall);
 
-    for height in ((-HEIGHT / 2.0 ) / 8.0) as i32..((HEIGHT / 2.0) / 8.0 ) as i32 {
+    for height in ((-HEIGHT / 2.0) / 8.0) as i32..((HEIGHT / 2.0) / 8.0) as i32 {
         commands.spawn_bundle(MaterialMesh2dBundle {
             mesh: meshes.add(Mesh::from(shape::Quad::default())).into(),
             transform: Transform::default()
                 .with_translation(Vec3::new(0.0, (-height as f32) * 8.0, 0.0))
                 .with_scale(Vec3::splat(2.0)),
             material: materials.add(MIDDLE_LINE_COLOR.into()),
-            ..default() 
+            ..default()
         });
     }
 
+    let text_style = TextStyle {
+        font: asset_server.load("fonts/MinecraftMono.otf"),
+        font_size: SCORE_FONT_SIZE,
+        color: SCORE_COLOUR.into(),
+    };
+
     // Scoreboard
     commands
-    .spawn_bundle(
-        NodeBundle {
-            style: Style {
-                size: Size::new(Val::Percent(100.0), Val::Percent(10.0)),
-                justify_content: JustifyContent::Center,
+        .spawn_bundle(Text2dBundle {
+            text: Text::from_section("0", text_style.clone()).with_alignment(TextAlignment::CENTER),
+            text_2d_bounds: Text2dBounds {
+                size: Vec2::new(100.0, 100.0),
                 ..default()
             },
-            color: Color::NONE.into(),
+            transform: Transform::from_xyz(-WIDTH / 4.0, HEIGHT / 2.0 - 100.0, 1.0),
             ..default()
         })
-        .with_children(|parent| {
+        .insert(Score);
 
-            // left score
-            parent.spawn_bundle(
-                TextBundle::from_sections([
-                    TextSection::from_style(TextStyle {
-                        font: Default::default(),   // There is no bevy default font, this not working is intended i guess
-                        font_size: SCORE_FONT_SIZE,
-                        color: SCORE_COLOUR,
-                    }),
-                ])
-                .with_text_alignment(TextAlignment::TOP_CENTER)
-                .with_style(Style {
-                    align_self: AlignSelf::FlexStart,
-                    position_type: PositionType::Absolute,
-                    position: UiRect {
-                        bottom: Val::Px(5.0),
-                        right: Val::Px(15.0),
-                        ..default()
-                    },
-                    ..default()
-                })
-            ).insert(Score);
-
-            //right score
-            parent.spawn_bundle(
-                TextBundle::from_sections([
-                    TextSection::from_style(TextStyle {
-                        font: Default::default(),
-                        font_size: SCORE_FONT_SIZE,
-                        color: SCORE_COLOUR,
-                    }),
-                ])
-                .with_style(Style {
-                    align_self: AlignSelf::FlexEnd,
-                    ..default()
-                })
-            ).insert(Score);
-        });
-
+    commands
+        .spawn_bundle(Text2dBundle {
+            text: Text::from_section("0", text_style.clone()).with_alignment(TextAlignment::CENTER),
+            text_2d_bounds: Text2dBounds {
+                size: Vec2::new(100.0, 100.0),
+                ..default()
+            },
+            transform: Transform::from_xyz(WIDTH / 4.0, HEIGHT / 2.0 - 100.0, 1.0),
+            ..default()
+        })
+        .insert(Score);
 }
 
 // fn move_player(
@@ -272,7 +262,6 @@ fn setup(
 
 //     paddle_transform.translation.x = new_paddle_position.clamp(left_bound, right_bound);
 // }
-
 
 // fn check_for_collisions(
 //     mut commands: Commands,
@@ -332,9 +321,7 @@ fn setup(
 fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
     let mut query = query.iter_mut();
 
-    query.next().unwrap()
-        .sections[0].value = scoreboard.p1_score.to_string();
+    query.next().unwrap().sections[0].value = scoreboard.p1_score.to_string();
 
-    query.next().unwrap()
-        .sections[0].value = scoreboard.p2_score.to_string();
+    query.next().unwrap().sections[0].value = scoreboard.p2_score.to_string();
 }
